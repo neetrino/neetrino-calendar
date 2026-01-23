@@ -1,0 +1,16 @@
+Contact: mailto:security@example.com
+Expires: 2027-12-31T23:59:59.000Z
+Preferred-Languages: en, ru
+Canonical: https://yourdomain.com/.well-known/security.txt
+
+# Security Policy
+Please report security vulnerabilities to the contact email above.
+We appreciate responsible disclosure and will respond within 48 hours.
+
+# Scope
+This security policy applies to the Calendar application and its API endpoints.
+
+# Out of Scope
+- Denial of service attacks
+- Social engineering attacks
+- Physical attacks

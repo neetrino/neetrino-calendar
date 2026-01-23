@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -12,13 +14,27 @@ export async function middleware(request: NextRequest) {
 
   // Check for user ID cookie
   const userId = request.cookies.get("calendar_auth_user_id")?.value;
+  
+  // Log all cookies for debugging
+  const allCookies = request.cookies.getAll();
+  logger.info("[MIDDLEWARE] All cookies", {
+    pathname,
+    cookieCount: allCookies.length,
+    cookieNames: allCookies.map((c) => c.name),
+    authCookieValue: userId || "not found",
+  });
 
   // If no cookie - redirect to login
   if (!userId) {
+    logger.info("[MIDDLEWARE] No auth cookie found, redirecting to login", { pathname });
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
+
+  // Note: Admin page access is checked at the page level, not in middleware
+  // This avoids potential issues with Prisma client in middleware
+  // API routes check access themselves via requireAdmin()
 
   return NextResponse.next();
 }

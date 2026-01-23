@@ -21,12 +21,13 @@ datasource db {
 // RsvpStatus: YES | NO | MAYBE
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  role      String   @default("USER") // ADMIN | USER
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String   // Hashed password (bcrypt)
+  role         String   @default("USER") // ADMIN | USER
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // Relations
   createdItems     CalendarItem[]

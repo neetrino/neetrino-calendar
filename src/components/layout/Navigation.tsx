@@ -29,18 +29,23 @@ export function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     // Fetch current user info
     fetch("/api/auth/me")
       .then((res) => res.json())
       .then((data) => {
         if (data.user) {
+          console.log("[Navigation] User loaded:", data.user);
           setCurrentUser(data.user);
+        } else {
+          console.log("[Navigation] No user found");
         }
       })
-      .catch(() => {
-        // Ignore errors
+      .catch((err) => {
+        console.error("[Navigation] Error fetching user:", err);
       });
   }, []);
 
@@ -53,6 +58,40 @@ export function Navigation() {
   // Don't show navigation on login page
   if (pathname === "/login") {
     return null;
+  }
+
+  // Prevent hydration mismatch by not rendering user-dependent content until mounted
+  if (!mounted) {
+    return (
+      <nav className="bg-white border-b border-gray-200">
+        <div className="px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href || pathname?.startsWith(item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
   }
 
   const isAdmin = currentUser?.role === "ADMIN";

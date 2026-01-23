@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../src/lib/password";
 
 const prisma = new PrismaClient();
 
@@ -13,12 +14,19 @@ async function main() {
   await prisma.calendarItem.deleteMany();
   await prisma.user.deleteMany();
 
+  // Hash passwords
+  console.log("[SEED] Hashing passwords...");
+  const defaultPassword = "Password123!"; // Default password for all demo users
+  const adminPasswordHash = await hashPassword(defaultPassword);
+  const userPasswordHash = await hashPassword(defaultPassword);
+
   // Create users
   console.log("[SEED] Creating users...");
   const admin = await prisma.user.create({
     data: {
       name: "Admin User",
       email: "admin@example.com",
+      passwordHash: adminPasswordHash,
       role: "ADMIN",
     },
   });
@@ -28,6 +36,7 @@ async function main() {
       data: {
         name: "Alice Johnson",
         email: "alice@example.com",
+        passwordHash: userPasswordHash,
         role: "USER",
       },
     }),
@@ -35,6 +44,7 @@ async function main() {
       data: {
         name: "Bob Smith",
         email: "bob@example.com",
+        passwordHash: userPasswordHash,
         role: "USER",
       },
     }),
@@ -42,6 +52,7 @@ async function main() {
       data: {
         name: "Carol Williams",
         email: "carol@example.com",
+        passwordHash: userPasswordHash,
         role: "USER",
       },
     }),
@@ -49,6 +60,7 @@ async function main() {
       data: {
         name: "David Brown",
         email: "david@example.com",
+        passwordHash: userPasswordHash,
         role: "USER",
       },
     }),
@@ -56,10 +68,14 @@ async function main() {
       data: {
         name: "Emma Davis",
         email: "emma@example.com",
+        passwordHash: userPasswordHash,
         role: "USER",
       },
     }),
   ]);
+
+  console.log(`[SEED] Created ${users.length + 1} users`);
+  console.log(`[SEED] Default password for all users: ${defaultPassword}`);
 
   console.log(`[SEED] Created ${users.length + 1} users`);
 

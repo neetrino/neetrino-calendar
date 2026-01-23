@@ -2,26 +2,41 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { UpdateScheduleEntrySchema } from "@/lib/validations/schedule";
+import { checkRateLimit, rateLimitConfigs } from "@/lib/rateLimit";
+import { createErrorResponse, ValidationError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
 /**
  * PATCH /api/schedule/:id - Update a schedule entry (admin only)
+ * Security: Rate limited, admin only, input validated, mass assignment protected
  */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    console.log(`[API] PATCH /api/schedule/${id}`);
+    logger.info(`PATCH /api/schedule/${id}`);
 
-    await requireAdmin();
+    // Rate limiting
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
+    if (!rateLimitResult) {
+      return NextResponse.json(
+        { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    // Require admin
+    const user = await requireAdmin();
 
     // Check if entry exists
     const existingEntry = await db.scheduleEntry.findUnique({
       where: { id },
+      select: { id: true, date: true, userId: true, startTime: true, endTime: true },
     });
 
     if (!existingEntry) {
-      return NextResponse.json({ error: "Schedule entry not found" }, { status: 404 });
+      throw new Error("Schedule entry not found");
     }
 
     const body = await request.json();
@@ -29,11 +44,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Validate request body
     const validatedBody = UpdateScheduleEntrySchema.safeParse(body);
     if (!validatedBody.success) {
-      console.error("[API] Validation error:", validatedBody.error);
-      return NextResponse.json(
-        { error: "Invalid request body", details: validatedBody.error.flatten() },
-        { status: 400 }
-      );
+      throw new ValidationError("Invalid request body", validatedBody.error.errors);
     }
 
     const { date, userId, startTime, endTime, note } = validatedBody.data;
@@ -60,10 +71,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       });
 
       if (conflictingEntry) {
-        return NextResponse.json(
-          { error: "Schedule entry already exists for this user on this date" },
-          { status: 409 }
-        );
+        throw new ValidationError("Schedule entry already exists for this user on this date");
       }
     }
 
@@ -72,10 +80,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const finalEndTime = endTime !== undefined ? endTime : existingEntry.endTime;
 
     if (finalEndTime <= finalStartTime) {
-      return NextResponse.json({ error: "End time must be after start time" }, { status: 400 });
+      throw new ValidationError("End time must be after start time");
     }
 
-    // Update entry
+    // Update entry (createdById cannot be changed - mass assignment protection)
     const entry = await db.scheduleEntry.update({
       where: { id },
       data: {
@@ -84,6 +92,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         startTime,
         endTime,
         note,
+        // createdById is not in UpdateScheduleEntrySchema, so it cannot be changed
       },
       include: {
         user: {
@@ -102,42 +111,49 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    console.log(`[API] Updated schedule entry: ${id}`);
+    logger.info(`Updated schedule entry`, { entryId: id, userId: user.id });
 
-    return NextResponse.json({ entry });
-  } catch (error) {
-    console.error("[API] Error updating schedule entry:", error);
-
-    if (error instanceof Error) {
-      if (error.message.includes("Unauthorized")) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      if (error.message.includes("Forbidden")) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
-      }
+    const response = NextResponse.json({ entry });
+    if (rateLimitResult) {
+      response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
     }
 
-    return NextResponse.json({ error: "Failed to update schedule entry" }, { status: 500 });
+    return response;
+  } catch (error) {
+    logger.error("Error updating schedule entry", { error });
+    return createErrorResponse(error);
   }
 }
 
 /**
  * DELETE /api/schedule/:id - Delete a schedule entry (admin only)
+ * Security: Rate limited, admin only
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    console.log(`[API] DELETE /api/schedule/${id}`);
+    logger.info(`DELETE /api/schedule/${id}`);
 
-    await requireAdmin();
+    // Rate limiting
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
+    if (!rateLimitResult) {
+      return NextResponse.json(
+        { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    // Require admin
+    const user = await requireAdmin();
 
     // Check if entry exists
     const existingEntry = await db.scheduleEntry.findUnique({
       where: { id },
+      select: { id: true },
     });
 
     if (!existingEntry) {
-      return NextResponse.json({ error: "Schedule entry not found" }, { status: 404 });
+      throw new Error("Schedule entry not found");
     }
 
     // Delete entry
@@ -145,21 +161,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id },
     });
 
-    console.log(`[API] Deleted schedule entry: ${id}`);
+    logger.info(`Deleted schedule entry`, { entryId: id, userId: user.id });
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("[API] Error deleting schedule entry:", error);
-
-    if (error instanceof Error) {
-      if (error.message.includes("Unauthorized")) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      if (error.message.includes("Forbidden")) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
-      }
+    const response = NextResponse.json({ success: true });
+    if (rateLimitResult) {
+      response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
     }
 
-    return NextResponse.json({ error: "Failed to delete schedule entry" }, { status: 500 });
+    return response;
+  } catch (error) {
+    logger.error("Error deleting schedule entry", { error });
+    return createErrorResponse(error);
   }
 }

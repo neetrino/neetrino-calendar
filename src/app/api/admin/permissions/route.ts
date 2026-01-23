@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { z } from "zod";
+import { checkRateLimit, rateLimitConfigs } from "@/lib/rateLimit";
+import { createErrorResponse, ValidationError } from "@/lib/errors";
+import { logger, securityLogger } from "@/lib/logger";
 
 // Validation schema for updating permissions
 const updatePermissionsSchema = z.object({
@@ -18,13 +21,23 @@ const updatePermissionsSchema = z.object({
 /**
  * GET /api/admin/permissions - Get all users with their permissions
  * Only accessible by ADMIN users
+ * Security: Rate limited, admin only, pagination limited
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    console.log("[API] GET /api/admin/permissions");
+    logger.info("GET /api/admin/permissions");
+
+    // Rate limiting
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
+    if (!rateLimitResult) {
+      return NextResponse.json(
+        { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
+    }
 
     // Verify admin access
-    await requireAdmin();
+    const user = await requireAdmin();
 
     // Get all users with their permissions
     const users = await db.user.findMany({
@@ -35,65 +48,72 @@ export async function GET() {
         role: true,
         permissions: true,
       },
+      take: 1000, // Max limit to prevent DoS
       orderBy: {
         name: "asc",
       },
     });
 
-    console.log(`[API] Found ${users.length} users with permissions`);
+    logger.info(`Found ${users.length} users with permissions`, { adminUserId: user.id });
 
-    return NextResponse.json({ users });
-  } catch (error) {
-    console.error("[API] Error fetching permissions:", error);
-
-    if (error instanceof Error) {
-      if (error.message.includes("Unauthorized")) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      if (error.message.includes("Forbidden")) {
-        return NextResponse.json({ error: "Forbidden - Admin access required" }, { status: 403 });
-      }
+    const response = NextResponse.json({ users });
+    if (rateLimitResult) {
+      response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
     }
 
-    return NextResponse.json({ error: "Failed to fetch permissions" }, { status: 500 });
+    return response;
+  } catch (error) {
+    logger.error("Error fetching permissions", { error });
+    return createErrorResponse(error);
   }
 }
 
 /**
  * PUT /api/admin/permissions - Update permissions for a user
  * Only accessible by ADMIN users
+ * Security: Rate limited, admin only, input validated, audit logged
  */
 export async function PUT(request: NextRequest) {
   try {
-    console.log("[API] PUT /api/admin/permissions");
+    logger.info("PUT /api/admin/permissions");
+
+    // Rate limiting
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
+    if (!rateLimitResult) {
+      return NextResponse.json(
+        { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
+    }
 
     // Verify admin access
-    await requireAdmin();
+    const adminUser = await requireAdmin();
 
     // Parse and validate request body
     const body = await request.json();
-    const validatedData = updatePermissionsSchema.parse(body);
+    const validatedData = updatePermissionsSchema.safeParse(body);
 
-    console.log(`[API] Updating permissions for user: ${validatedData.userId}`);
-    console.log(`[API] Permissions data:`, JSON.stringify(validatedData.permissions, null, 2));
+    if (!validatedData.success) {
+      throw new ValidationError("Invalid request body", validatedData.error.errors);
+    }
 
     // Verify user exists
-    const user = await db.user.findUnique({
-      where: { id: validatedData.userId },
+    const targetUser = await db.user.findUnique({
+      where: { id: validatedData.data.userId },
+      select: { id: true, email: true },
     });
 
-    if (!user) {
-      console.log(`[API] User not found: ${validatedData.userId}`);
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    if (!targetUser) {
+      throw new Error("User not found");
     }
 
     // Update permissions using upsert for each module
     const updatedPermissions = await Promise.all(
-      validatedData.permissions.map(async (perm) => {
+      validatedData.data.permissions.map(async (perm) => {
         return db.userPermission.upsert({
           where: {
             userId_module: {
-              userId: validatedData.userId,
+              userId: validatedData.data.userId,
               module: perm.module,
             },
           },
@@ -102,7 +122,7 @@ export async function PUT(request: NextRequest) {
             allLevel: perm.allLevel,
           },
           create: {
-            userId: validatedData.userId,
+            userId: validatedData.data.userId,
             module: perm.module,
             myLevel: perm.myLevel,
             allLevel: perm.allLevel,
@@ -111,31 +131,28 @@ export async function PUT(request: NextRequest) {
       })
     );
 
-    console.log(`[API] Successfully updated ${updatedPermissions.length} permissions`);
+    // Audit log: permissions changed
+    securityLogger.permissionChanged(adminUser.id, validatedData.data.userId, {
+      permissions: validatedData.data.permissions,
+    });
 
-    return NextResponse.json({
+    logger.info(`Updated ${updatedPermissions.length} permissions`, {
+      adminUserId: adminUser.id,
+      targetUserId: validatedData.data.userId,
+    });
+
+    const response = NextResponse.json({
       message: "Permissions updated successfully",
       permissions: updatedPermissions,
     });
+
+    if (rateLimitResult) {
+      response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
+    }
+
+    return response;
   } catch (error) {
-    console.error("[API] Error updating permissions:", error);
-
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.issues },
-        { status: 400 }
-      );
-    }
-
-    if (error instanceof Error) {
-      if (error.message.includes("Unauthorized")) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      if (error.message.includes("Forbidden")) {
-        return NextResponse.json({ error: "Forbidden - Admin access required" }, { status: 403 });
-      }
-    }
-
-    return NextResponse.json({ error: "Failed to update permissions" }, { status: 500 });
+    logger.error("Error updating permissions", { error });
+    return createErrorResponse(error);
   }
 }

@@ -2,15 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin, requireAuth } from "@/lib/auth";
 import { CreateCalendarItemSchema, GetCalendarItemsSchema } from "@/lib/validations/calendar";
+import { checkRateLimit, rateLimitConfigs } from "@/lib/rateLimit";
+import { createErrorResponse, ValidationError, UnauthorizedError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
+import { getCalendarItemsFilter } from "@/lib/authorize";
 
 /**
  * GET /api/calendar/items - Get calendar items with filters
+ * Security: Rate limited, authorization filtered, pagination limited
  */
 export async function GET(request: NextRequest) {
   try {
-    console.log("[API] GET /api/calendar/items");
+    logger.info("GET /api/calendar/items");
 
-    await requireAuth();
+    // Rate limiting
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
+    if (!rateLimitResult) {
+      return NextResponse.json(
+        { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "60",
+            "X-RateLimit-Limit": String(rateLimitConfigs.moderate.max),
+            "X-RateLimit-Remaining": "0",
+          },
+        }
+      );
+    }
+
+    // Require authentication
+    const user = await requireAuth();
 
     const { searchParams } = new URL(request.url);
     const query = {
@@ -24,18 +46,19 @@ export async function GET(request: NextRequest) {
     // Validate query params
     const validatedQuery = GetCalendarItemsSchema.safeParse(query);
     if (!validatedQuery.success) {
-      console.error("[API] Validation error:", validatedQuery.error);
-      return NextResponse.json(
-        { error: "Invalid query parameters", details: validatedQuery.error.flatten() },
-        { status: 400 }
-      );
+      throw new ValidationError("Invalid query parameters", validatedQuery.error.errors);
     }
 
     const { from, to, type, status, search } = validatedQuery.data;
 
+    // Get authorization filter (only show items user has access to)
+    const authFilter = await getCalendarItemsFilter(user);
+
     // Build where clause
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {};
+    const where: any = {
+      ...authFilter,
+    };
 
     if (from || to) {
       where.startAt = {};
@@ -47,14 +70,15 @@ export async function GET(request: NextRequest) {
     if (status) where.status = status;
     if (search) {
       // For SQLite, use contains (case-sensitive)
-      // Note: SQLite doesn't support mode: "insensitive", so search is case-sensitive
       where.title = {
         contains: search,
       };
     }
 
+    // Pagination limit (max 1000 items)
     const items = await db.calendarItem.findMany({
       where,
+      take: 1000, // Max limit to prevent DoS
       include: {
         createdBy: {
           select: {
@@ -80,60 +104,61 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    console.log(`[API] Found ${items.length} calendar items`);
+    logger.info(`Found ${items.length} calendar items`, { userId: user.id });
 
-    return NextResponse.json({ items });
-  } catch (error) {
-    console.error("[API] Error fetching calendar items:", error);
-    console.error("[API] Error details:", {
-      message: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Add rate limit headers
+    const response = NextResponse.json({ items });
+    if (rateLimitResult) {
+      response.headers.set("X-RateLimit-Limit", String(rateLimitResult.limit));
+      response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
+      response.headers.set("X-RateLimit-Reset", String(rateLimitResult.reset));
     }
 
-    return NextResponse.json(
-      {
-        error: "Failed to fetch calendar items",
-        message: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    return response;
+  } catch (error) {
+    logger.error("Error fetching calendar items", { error });
+    return createErrorResponse(error);
   }
 }
 
 /**
  * POST /api/calendar/items - Create a new calendar item (admin only)
+ * Security: Rate limited, admin only, input validated, mass assignment protected
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log("[API] POST /api/calendar/items");
+    logger.info("POST /api/calendar/items");
 
+    // Rate limiting
+    const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
+    if (!rateLimitResult) {
+      return NextResponse.json(
+        { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    // Require admin
     const user = await requireAdmin();
 
     const body = await request.json();
 
-    // Validate request body
+    // Validate request body (zod schema already protects against mass assignment)
     const validatedBody = CreateCalendarItemSchema.safeParse(body);
     if (!validatedBody.success) {
-      console.error("[API] Validation error:", validatedBody.error);
-      return NextResponse.json(
-        { error: "Invalid request body", details: validatedBody.error.flatten() },
-        { status: 400 }
-      );
+      throw new ValidationError("Invalid request body", validatedBody.error.errors);
     }
 
     const { participants, ...itemData } = validatedBody.data;
 
-    // Create calendar item
+    // Ensure createdById is set to current user (prevent mass assignment)
+    // Even if user tries to pass createdById, it will be overwritten
     const item = await db.calendarItem.create({
       data: {
         ...itemData,
         startAt: new Date(itemData.startAt),
         endAt: itemData.endAt ? new Date(itemData.endAt) : null,
-        createdById: user.id,
+        createdById: user.id, // Always use current user, ignore any user input
         participants: participants
           ? {
               create: participants.map((p) => ({
@@ -165,31 +190,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    console.log(`[API] Created calendar item: ${item.id}`);
+    logger.info("Created calendar item", { itemId: item.id, userId: user.id });
 
-    return NextResponse.json({ item }, { status: 201 });
-  } catch (error) {
-    console.error("[API] Error creating calendar item:", error);
-    console.error("[API] Error details:", {
-      message: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-
-    if (error instanceof Error) {
-      if (error.message.includes("Unauthorized")) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      if (error.message.includes("Forbidden")) {
-        return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
-      }
+    const response = NextResponse.json({ item }, { status: 201 });
+    if (rateLimitResult) {
+      response.headers.set("X-RateLimit-Limit", String(rateLimitResult.limit));
+      response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
     }
 
-    return NextResponse.json(
-      {
-        error: "Failed to create calendar item",
-        message: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    return response;
+  } catch (error) {
+    logger.error("Error creating calendar item", { error });
+    return createErrorResponse(error);
   }
 }
