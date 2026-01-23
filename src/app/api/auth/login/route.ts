@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     // Rate limiting (strict: 5 requests per minute)
     const rateLimitResult = checkRateLimit(request, rateLimitConfigs.strict);
     if (!rateLimitResult) {
-      const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || request.ip || "unknown";
+      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
       securityLogger.rateLimitExceeded(ip, "/api/auth/login");
       return NextResponse.json(
         { error: "Too Many Requests", message: "Too many login attempts. Please try again later." },
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     // Always return same response format (prevent enumeration)
     // Never reveal if user exists or not, or if password is wrong
     if (!user || !passwordValid) {
-      const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || request.ip || "unknown";
+      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
       securityLogger.failedLogin(email, ip, !user ? "User not found" : "Invalid password");
       // Return generic error (same format as success, but without user data)
       return NextResponse.json(

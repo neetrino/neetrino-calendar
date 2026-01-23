@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     // Rate limiting (strict: 5 requests per minute)
     const rateLimitResult = checkRateLimit(request, rateLimitConfigs.strict);
     if (!rateLimitResult) {
-      const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || request.ip || "unknown";
+      const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
       securityLogger.rateLimitExceeded(ip, "/api/auth/signup");
       return NextResponse.json(
         { error: "Too Many Requests", message: "Too many registration attempts. Please try again later." },
