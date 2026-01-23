@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     // Validate input
     const validated = loginSchema.safeParse(body);
     if (!validated.success) {
-      throw new ValidationError("Invalid email format", validated.error.errors);
+      throw new ValidationError("Invalid email format", validated.error.issues);
     }
 
     const { email, password } = validated.data;

@@ -44,7 +44,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Validate request body
     const validatedBody = UpdateScheduleEntrySchema.safeParse(body);
     if (!validatedBody.success) {
-      throw new ValidationError("Invalid request body", validatedBody.error.errors);
+      throw new ValidationError("Invalid request body", validatedBody.error.issues);
     }
 
     const { date, userId, startTime, endTime, note } = validatedBody.data;

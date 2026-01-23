@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     // Validate query params
     const validatedQuery = GetCalendarItemsSchema.safeParse(query);
     if (!validatedQuery.success) {
-      throw new ValidationError("Invalid query parameters", validatedQuery.error.errors);
+      throw new ValidationError("Invalid query parameters", validatedQuery.error.issues);
     }
 
     const { from, to, type, status, search } = validatedQuery.data;
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     // Validate request body (zod schema already protects against mass assignment)
     const validatedBody = CreateCalendarItemSchema.safeParse(body);
     if (!validatedBody.success) {
-      throw new ValidationError("Invalid request body", validatedBody.error.errors);
+      throw new ValidationError("Invalid request body", validatedBody.error.issues);
     }
 
     const { participants, ...itemData } = validatedBody.data;

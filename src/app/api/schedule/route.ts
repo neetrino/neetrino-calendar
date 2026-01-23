@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     // Validate query params
     const validatedQuery = GetScheduleSchema.safeParse({ date });
     if (!validatedQuery.success) {
-      throw new ValidationError("Invalid date format", validatedQuery.error.errors);
+      throw new ValidationError("Invalid date format", validatedQuery.error.issues);
     }
 
     // Parse date (set to start of day)
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     // Validate request body
     const validatedBody = CreateScheduleEntrySchema.safeParse(body);
     if (!validatedBody.success) {
-      throw new ValidationError("Invalid request body", validatedBody.error.errors);
+      throw new ValidationError("Invalid request body", validatedBody.error.issues);
     }
 
     const { date, userId, startTime, endTime, note } = validatedBody.data;

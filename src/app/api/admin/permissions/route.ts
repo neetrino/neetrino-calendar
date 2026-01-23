@@ -94,7 +94,7 @@ export async function PUT(request: NextRequest) {
     const validatedData = updatePermissionsSchema.safeParse(body);
 
     if (!validatedData.success) {
-      throw new ValidationError("Invalid request body", validatedData.error.errors);
+      throw new ValidationError("Invalid request body", validatedData.error.issues);
     }
 
     // Verify user exists

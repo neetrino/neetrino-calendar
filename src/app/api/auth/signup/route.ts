@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     // Validate input
     const validated = signupSchema.safeParse(body);
     if (!validated.success) {
-      throw new ValidationError("Invalid input", validated.error.errors);
+      throw new ValidationError("Invalid input", validated.error.issues);
     }
 
     const { name, email, password } = validated.data;
