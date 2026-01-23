@@ -33,27 +33,18 @@ const envSchema = z.object({
 
 /**
  * Check if we're in build time (Prisma generation, not runtime)
- * Uses environment variables instead of process.argv for Edge Runtime compatibility
+ * Uses environment variables only for Edge Runtime compatibility
  */
 function isBuildTime(): boolean {
   // Check if we're in build phase using Next.js environment variables
-  // NEXT_PHASE is set during build, VERCEL_ENV is not set during build
+  // NEXT_PHASE is set during build
   const isNextBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+  
+  // On Vercel during build: VERCEL=1 but VERCEL_ENV is not set yet
+  // During runtime: VERCEL=1 and VERCEL_ENV is set (production, preview, development)
   const isVercelBuild = process.env.VERCEL === "1" && !process.env.VERCEL_ENV;
   
-  // Fallback: check if process.argv is available (not in Edge Runtime)
-  let isPrismaGenerate = false;
-  let isNextBuild = false;
-  try {
-    if (typeof process !== "undefined" && process.argv) {
-      isPrismaGenerate = process.argv.some(arg => arg.includes("prisma") && arg.includes("generate"));
-      isNextBuild = process.argv.some(arg => arg.includes("next") && arg.includes("build"));
-    }
-  } catch {
-    // process.argv not available (Edge Runtime)
-  }
-  
-  return isNextBuildPhase || isVercelBuild || isPrismaGenerate || isNextBuild;
+  return isNextBuildPhase || isVercelBuild;
 }
 
 /**
