@@ -6,6 +6,7 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   // Database
+  // On Vercel with SQLite, will use in-memory database if not provided
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
   // Auth
@@ -36,8 +37,11 @@ const envSchema = z.object({
  */
 export const env = (() => {
   try {
+    // On Vercel, provide default in-memory SQLite if DATABASE_URL is not set
+    const databaseUrl = process.env.DATABASE_URL || (process.env.VERCEL ? "file::memory:?cache=shared" : undefined);
+    
     return envSchema.parse({
-      DATABASE_URL: process.env.DATABASE_URL,
+      DATABASE_URL: databaseUrl || "file:./dev.db", // Fallback for local dev
       AUTH_SECRET: process.env.AUTH_SECRET,
       NODE_ENV: process.env.NODE_ENV,
       RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED,
