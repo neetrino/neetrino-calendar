@@ -48,16 +48,25 @@ export async function POST(request: NextRequest) {
     // Find user by email
     // Use constant-time approach: always perform DB query, then check result
     const startTime = Date.now();
-    const user = await db.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        passwordHash: true,
-      },
-    });
+    let user;
+    try {
+      user = await db.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          passwordHash: true,
+        },
+      });
+    } catch (dbError) {
+      // Check if database is empty (common on Vercel with in-memory SQLite)
+      logger.error("Database query error", { error: dbError });
+      throw new Error(
+        "Database connection error. If you're on Vercel, please initialize the database first by calling /api/admin/init-db"
+      );
+    }
 
     // Verify password (always perform verification to prevent timing attacks)
     // If user doesn't exist, use a real bcrypt hash to maintain constant time
@@ -114,7 +123,32 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    logger.error("Error in login endpoint", { error });
+    // Log detailed error for debugging
+    logger.error("Error in login endpoint", { 
+      error: error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      } : error 
+    });
+    
+    // Check if it's a database connection error
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+      if (errorMessage.includes("prisma") || errorMessage.includes("database") || errorMessage.includes("connection") || errorMessage.includes("initialize")) {
+        logger.error("Database connection error detected", { error: error.message });
+        return NextResponse.json(
+          { 
+            error: "DatabaseError", 
+            message: error.message.includes("initialize") 
+              ? error.message
+              : "Database connection error. If you're on Vercel, the database may need to be initialized. Please call /api/admin/init-db first."
+          },
+          { status: 500 }
+        );
+      }
+    }
+    
     return createErrorResponse(error);
   }
 }

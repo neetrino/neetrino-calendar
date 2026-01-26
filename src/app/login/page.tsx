@@ -47,11 +47,18 @@ function LoginForm() {
         const redirect = searchParams.get("redirect") || "/meetings";
         window.location.href = redirect;
       } else {
-        setError(data.message || "Invalid email or password");
+        // Show more specific error message
+        const errorMessage = data.message || data.error || "Invalid email or password";
+        setError(errorMessage);
+        console.error("[Login] Login failed:", { 
+          status: response.status, 
+          error: data.error,
+          message: data.message 
+        });
       }
     } catch (error) {
-      console.error("[Login] Error:", error);
-      setError("Login error. Please try again.");
+      console.error("[Login] Network error:", error);
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setIsLoading(false);
     }
