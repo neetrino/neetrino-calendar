@@ -12,17 +12,25 @@ export const runtime = "nodejs";
  * Security: Rate limited
  */
 export async function GET(request: NextRequest) {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  
   try {
     logger.info("GET /api/auth/me", {
+      requestId,
       url: request.url,
       method: request.method,
       environment: process.env.VERCEL ? "vercel" : "local",
+      runtime: "nodejs", // Explicitly log runtime
+      headers: {
+        cookie: request.headers.get("cookie") ? "present" : "missing",
+        userAgent: request.headers.get("user-agent")?.substring(0, 50) || "unknown",
+      },
     });
 
     // Rate limiting
     const rateLimitResult = checkRateLimit(request, rateLimitConfigs.moderate);
     if (!rateLimitResult) {
-      logger.warn("Rate limit exceeded for /api/auth/me");
+      logger.warn("Rate limit exceeded for /api/auth/me", { requestId });
       return NextResponse.json(
         { error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." },
         { 
@@ -34,10 +42,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    logger.debug("Rate limit check passed", { requestId, remaining: rateLimitResult.remaining });
+
     // Check database connection first
+    logger.debug("Checking database connection", { requestId });
     const dbCheck = await checkDatabaseConnection();
     if (!dbCheck.connected) {
       logger.error("Database connection failed in /api/auth/me", { 
+        requestId,
         error: dbCheck.error,
         environment: process.env.VERCEL ? "vercel" : "local",
       });
@@ -56,10 +68,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    logger.debug("Database connection OK", { requestId });
+
     // Check if database is initialized (has users)
+    logger.debug("Checking if database is initialized", { requestId });
     const isInitialized = await isDatabaseInitialized();
     if (!isInitialized && process.env.VERCEL) {
-      logger.warn("Database not initialized on Vercel");
+      logger.warn("Database not initialized on Vercel", { requestId });
       return NextResponse.json(
         { 
           user: null,
@@ -75,10 +90,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const user = await getCurrentUser();
+    logger.debug("Database initialized check passed", { requestId, isInitialized });
+
+    // Try to get current user
+    logger.debug("Attempting to get current user", { requestId });
+    let user;
+    try {
+      user = await getCurrentUser();
+    } catch (getUserError) {
+      // getCurrentUser() should never throw (it returns null on errors)
+      // But if it does, we need to catch it
+      const errorMessage = getUserError instanceof Error ? getUserError.message : "Unknown error";
+      logger.error("getCurrentUser() threw an error (unexpected)", {
+        requestId,
+        error: errorMessage,
+        errorType: getUserError instanceof Error ? getUserError.constructor.name : typeof getUserError,
+        stack: getUserError instanceof Error ? getUserError.stack : undefined,
+        environment: process.env.VERCEL ? "vercel" : "local",
+      });
+      // Return null user instead of crashing
+      user = null;
+    }
 
     if (!user) {
-      logger.debug("No user found in /api/auth/me (no cookie or user not found)");
+      logger.debug("No user found in /api/auth/me (no cookie or user not found)", { requestId });
       const response = NextResponse.json({ user: null }, {
         headers: {
           "Content-Type": "application/json",
@@ -91,7 +126,8 @@ export async function GET(request: NextRequest) {
     }
 
     logger.info("User found in /api/auth/me", {
-      userId: user.id,
+      requestId,
+      userId: user.id.substring(0, 8) + "***",
       email: user.email.substring(0, 3) + "***",
       role: user.role,
     });
@@ -113,6 +149,7 @@ export async function GET(request: NextRequest) {
       response.headers.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
     }
 
+    logger.debug("Successfully returning user data", { requestId });
     return response;
   } catch (error) {
     // Log detailed error for debugging
@@ -122,17 +159,20 @@ export async function GET(request: NextRequest) {
       stack: error.stack,
     } : { error };
     
-    logger.error("Error getting current user", { 
+    logger.error("Unexpected error in /api/auth/me", { 
+      requestId: `req_${Date.now()}_${Math.random().toString(36).substring(7)}`,
       ...errorDetails,
       environment: process.env.VERCEL ? "vercel" : "local",
       url: request.url,
+      method: request.method,
+      runtime: "nodejs",
     });
     
     // Check if it's a database connection error
     if (error instanceof Error) {
       const errorMessage = error.message.toLowerCase();
       if (errorMessage.includes("prisma") || errorMessage.includes("database") || errorMessage.includes("connection") || errorMessage.includes("initialize")) {
-        logger.error("Database connection error in /api/auth/me", { 
+        logger.error("Database connection error detected in /api/auth/me", { 
           error: error.message,
           environment: process.env.VERCEL ? "vercel" : "local",
         });
@@ -152,14 +192,36 @@ export async function GET(request: NextRequest) {
           }
         );
       }
+      
+      // Check if it's a cookies() API error
+      if (errorMessage.includes("cookies") || errorMessage.includes("dynamic") || errorMessage.includes("edge")) {
+        logger.error("Cookies API error detected in /api/auth/me", {
+          error: error.message,
+          environment: process.env.VERCEL ? "vercel" : "local",
+          note: "This might indicate a runtime mismatch - cookies() requires Node.js runtime",
+        });
+        return NextResponse.json(
+          {
+            user: null,
+            error: "RuntimeError",
+            message: "Authentication system error. Please check server logs for details."
+          },
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+            }
+          }
+        );
+      }
     }
     
     // Return proper error response - always JSON, never HTML
     return NextResponse.json(
       { 
         user: null,
-        error: error instanceof Error ? error.message : "Unknown error",
-        message: "An unexpected error occurred. Please try again later."
+        error: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : "An unexpected error occurred. Please try again later."
       },
       { 
         status: 500,

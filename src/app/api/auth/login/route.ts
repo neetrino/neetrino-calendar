@@ -17,13 +17,22 @@ const loginSchema = z.object({
 /**
  * Handle OPTIONS request for CORS preflight
  */
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
+  logger.info("OPTIONS /api/auth/login (CORS preflight)", {
+    url: request.url,
+    origin: request.headers.get("origin"),
+    method: request.headers.get("access-control-request-method"),
+    headers: request.headers.get("access-control-request-headers"),
+    environment: process.env.VERCEL ? "vercel" : "local",
+  });
+  
   return new NextResponse(null, {
     status: 200,
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400", // 24 hours
     },
   });
 }
@@ -33,22 +42,67 @@ export async function OPTIONS() {
  * Security: Rate limited, email enumeration protection, secure cookies
  */
 export async function POST(request: NextRequest) {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  
   try {
+    // Detailed logging for 405 diagnostics
+    const requestMethod = request.method;
+    const requestUrl = request.url;
+    const contentType = request.headers.get("content-type");
+    const origin = request.headers.get("origin");
+    const userAgent = request.headers.get("user-agent");
+    const referer = request.headers.get("referer");
+    
     logger.info("POST /api/auth/login", {
-      method: request.method,
-      url: request.url,
+      requestId,
+      method: requestMethod,
+      url: requestUrl,
       environment: process.env.VERCEL ? "vercel" : "local",
+      runtime: "nodejs", // Explicitly log runtime
       headers: {
-        contentType: request.headers.get("content-type"),
-        origin: request.headers.get("origin"),
+        contentType,
+        origin,
+        userAgent: userAgent?.substring(0, 50) || "unknown",
+        referer: referer?.substring(0, 100) || "none",
+        accept: request.headers.get("accept") || "unknown",
       },
+      // Log if this is actually a POST request
+      isPost: requestMethod === "POST",
+      isOptions: requestMethod === "OPTIONS",
     });
+    
+    // Double-check that this is actually a POST request
+    if (requestMethod !== "POST") {
+      logger.error("Wrong HTTP method in /api/auth/login", {
+        requestId,
+        expected: "POST",
+        received: requestMethod,
+        url: requestUrl,
+        environment: process.env.VERCEL ? "vercel" : "local",
+      });
+      return NextResponse.json(
+        { 
+          error: "MethodNotAllowed", 
+          message: `This endpoint only accepts POST requests, but received ${requestMethod}. Please check your request method.`
+        },
+        { 
+          status: 405,
+          headers: {
+            "Content-Type": "application/json",
+            "Allow": "POST, OPTIONS",
+          }
+        }
+      );
+    }
+
+    logger.debug("Request validation passed, checking rate limit", { requestId });
 
     // Rate limiting (strict: 5 requests per minute)
     const rateLimitResult = checkRateLimit(request, rateLimitConfigs.strict);
     if (!rateLimitResult) {
       const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
       securityLogger.rateLimitExceeded(ip, "/api/auth/login");
+      logger.warn("Rate limit exceeded for /api/auth/login", { requestId, ip });
       return NextResponse.json(
         { error: "Too Many Requests", message: "Too many login attempts. Please try again later." },
         {
@@ -60,11 +114,15 @@ export async function POST(request: NextRequest) {
         }
       );
     }
+    
+    logger.debug("Rate limit check passed", { requestId, remaining: rateLimitResult.remaining });
 
     // Check database connection first
+    logger.debug("Checking database connection", { requestId });
     const dbCheck = await checkDatabaseConnection();
     if (!dbCheck.connected) {
       logger.error("Database connection failed in /api/auth/login", { 
+        requestId,
         error: dbCheck.error,
         environment: process.env.VERCEL ? "vercel" : "local",
       });
@@ -82,10 +140,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    logger.debug("Database connection OK", { requestId });
+
     // Check if database is initialized (has users)
+    logger.debug("Checking if database is initialized", { requestId });
     const isInitialized = await isDatabaseInitialized();
     if (!isInitialized && process.env.VERCEL) {
-      logger.warn("Database not initialized on Vercel in /api/auth/login");
+      logger.warn("Database not initialized on Vercel in /api/auth/login", { requestId });
       return NextResponse.json(
         { 
           error: "DatabaseNotInitialized",
@@ -100,15 +161,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    logger.debug("Database initialized check passed", { requestId, isInitialized });
+
     // Parse request body with error handling
+    logger.debug("Parsing request body", { requestId, contentType });
     let body;
     try {
       body = await request.json();
+      logger.debug("Request body parsed successfully", { 
+        requestId,
+        hasEmail: !!body.email,
+        hasPassword: !!body.password,
+      });
     } catch (parseError) {
-      logger.error("Failed to parse request body", { error: parseError });
+      const errorMessage = parseError instanceof Error ? parseError.message : "Unknown error";
+      logger.error("Failed to parse request body", { 
+        requestId,
+        error: errorMessage,
+        contentType,
+        errorType: parseError instanceof Error ? parseError.constructor.name : typeof parseError,
+      });
       return NextResponse.json(
-        { error: "InvalidRequest", message: "Invalid request format. Please check your input." },
-        { status: 400 }
+        { 
+          error: "InvalidRequest", 
+          message: `Invalid request format: ${errorMessage}. Please check your input and Content-Type header.`
+        },
+        { 
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+          }
+        }
       );
     }
 
@@ -192,7 +275,8 @@ export async function POST(request: NextRequest) {
     }
 
     logger.info("User logged in successfully", {
-      userId: user.id,
+      requestId,
+      userId: user.id.substring(0, 8) + "***",
       email: user.email.substring(0, 3) + "***", // Partial email for logs
       role: user.role,
     });
@@ -230,9 +314,12 @@ export async function POST(request: NextRequest) {
     } : { error };
     
     logger.error("Error in login endpoint", { 
+      requestId: `req_${Date.now()}_${Math.random().toString(36).substring(7)}`,
       ...errorDetails,
       environment: process.env.VERCEL ? "vercel" : "local",
       url: request.url,
+      method: request.method,
+      runtime: "nodejs",
     });
     
     // Check if it's a database connection error
