@@ -63,10 +63,10 @@ export function EventModal({ event, isOpen, onClose, onEdit }: EventModalProps) 
         {/* Badges - outside DialogDescription to avoid hydration error */}
         <div className="flex items-center gap-2 mt-2 mb-4">
           <Badge variant={event.type === "MEETING" ? "meeting" : "deadline"}>
-            {ITEM_TYPE_LABELS[event.type]}
+            {ITEM_TYPE_LABELS[event.type as keyof typeof ITEM_TYPE_LABELS]}
           </Badge>
-          <Badge variant="outline" className={STATUS_COLORS[event.status]}>
-            {STATUS_LABELS[event.status]}
+          <Badge variant="outline" className={STATUS_COLORS[event.status as keyof typeof STATUS_COLORS]}>
+            {STATUS_LABELS[event.status as keyof typeof STATUS_LABELS]}
           </Badge>
         </div>
 

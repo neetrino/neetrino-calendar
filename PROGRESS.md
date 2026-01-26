@@ -155,4 +155,19 @@ npm run dev
 
 ---
 
-*Последнее обновление: 22.01.2026 17:30*
+## 26.01.2026 — Исправление ошибок сборки для Vercel
+
+#### 08:20 — Исправлены ошибки TypeScript и Next.js 15 ✅
+- [x] Исправлен синтаксис `cookies.delete()` в `/api/auth/logout/route.ts` (Next.js 15 API)
+- [x] Добавлены type assertions для `event.type` и `event.status` в `EventForm.tsx`
+- [x] Исправлен доступ к `ITEM_TYPE_LABELS` и `STATUS_LABELS` в `EventModal.tsx`
+- [x] Исправлен импорт `Role` в `useUsers.ts` (из `types.ts` вместо `@prisma/client`)
+- [x] Исправлен доступ к ошибкам Zod в `env.ts` (`error.issues` вместо `error.errors`)
+- [x] Удалено несуществующее свойство `req.ip` в `rateLimit.ts`
+- [x] Обернут `useSearchParams()` в Suspense boundary в `login/page.tsx`
+
+**Результат:** Сборка проекта проходит успешно (`npm run build` ✅)
+
+---
+
+*Последнее обновление: 26.01.2026 08:30*

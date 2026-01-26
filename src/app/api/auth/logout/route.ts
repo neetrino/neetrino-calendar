@@ -23,8 +23,14 @@ export async function POST(request: NextRequest) {
     // Удаляем cookie через response.cookies для правильной работы в Next.js 15
     const response = NextResponse.json({ success: true });
     
-    response.cookies.delete("calendar_auth_user_id", {
+    // В Next.js 15 delete() принимает только имя cookie
+    // Для правильного удаления с указанием path используем set() с maxAge: 0
+    response.cookies.set("calendar_auth_user_id", "", {
       path: "/",
+      maxAge: 0,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
     });
     
     if (rateLimitResult) {

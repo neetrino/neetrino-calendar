@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { User, Role } from "@prisma/client";
+import type { User } from "@prisma/client";
+import type { Role } from "../types";
 
 export type UserBasic = Pick<User, "id" | "name" | "email" | "role">;
 

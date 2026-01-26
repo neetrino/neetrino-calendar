@@ -56,7 +56,7 @@ export function EventForm({ event, isOpen, onClose, defaultDate, defaultType }: 
   // Initialize form when event changes
   useEffect(() => {
     if (event) {
-      setType(event.type);
+      setType(event.type as CalendarItemType);
       setTitle(event.title);
       setDescription(event.description || "");
       setStartDate(format(new Date(event.startAt), "yyyy-MM-dd"));
@@ -65,7 +65,7 @@ export function EventForm({ event, isOpen, onClose, defaultDate, defaultType }: 
         setEndTime(format(new Date(event.endAt), "HH:mm"));
       }
       setAllDay(event.allDay);
-      setStatus(event.status);
+      setStatus(event.status as ItemStatus);
       setLocation(event.location || "");
       setSelectedParticipants(event.participants.map((p) => p.user.id));
     } else {

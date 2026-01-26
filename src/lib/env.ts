@@ -73,7 +73,7 @@ export const env = (() => {
     if (error instanceof z.ZodError) {
       // During build, allow missing AUTH_SECRET (it will be required at runtime)
       const buildTime = isBuildTime();
-      const missingAuthSecret = error.errors.some(e => e.path.includes("AUTH_SECRET"));
+      const missingAuthSecret = error.issues.some(e => e.path.includes("AUTH_SECRET"));
       
       if (buildTime && missingAuthSecret) {
         console.warn("⚠️  AUTH_SECRET not set during build - using placeholder. Make sure to set it in Vercel environment variables!");
@@ -87,7 +87,7 @@ export const env = (() => {
         });
       }
       
-      const missingVars = error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("\n");
+      const missingVars = error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("\n");
       throw new Error(
         `❌ Invalid environment variables:\n${missingVars}\n\nPlease check your .env file or Vercel environment variables.`
       );
