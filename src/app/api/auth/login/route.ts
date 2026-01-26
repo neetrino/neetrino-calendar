@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, checkDatabaseConnection, isDatabaseInitialized } from "@/lib/db";
 import { checkRateLimit, rateLimitConfigs } from "@/lib/rateLimit";
 import { createErrorResponse, ValidationError } from "@/lib/errors";
 import { logger, securityLogger } from "@/lib/logger";
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     logger.info("POST /api/auth/login", {
       method: request.method,
       url: request.url,
+      environment: process.env.VERCEL ? "vercel" : "local",
       headers: {
         contentType: request.headers.get("content-type"),
         origin: request.headers.get("origin"),
@@ -54,7 +55,47 @@ export async function POST(request: NextRequest) {
           status: 429,
           headers: {
             "Retry-After": "60",
+            "Content-Type": "application/json",
           },
+        }
+      );
+    }
+
+    // Check database connection first
+    const dbCheck = await checkDatabaseConnection();
+    if (!dbCheck.connected) {
+      logger.error("Database connection failed in /api/auth/login", { 
+        error: dbCheck.error,
+        environment: process.env.VERCEL ? "vercel" : "local",
+      });
+      return NextResponse.json(
+        { 
+          error: "DatabaseError", 
+          message: `Database connection failed: ${dbCheck.error || "Unknown error"}. If you're on Vercel, the database may need to be initialized. Please call /api/admin/init-db first.`
+        },
+        { 
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+          }
+        }
+      );
+    }
+
+    // Check if database is initialized (has users)
+    const isInitialized = await isDatabaseInitialized();
+    if (!isInitialized && process.env.VERCEL) {
+      logger.warn("Database not initialized on Vercel in /api/auth/login");
+      return NextResponse.json(
+        { 
+          error: "DatabaseNotInitialized",
+          message: "Database is not initialized. Please call /api/admin/init-db first to create users."
+        },
+        { 
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+          }
         }
       );
     }
@@ -96,9 +137,24 @@ export async function POST(request: NextRequest) {
       });
     } catch (dbError) {
       // Check if database is empty (common on Vercel with in-memory SQLite)
-      logger.error("Database query error", { error: dbError });
-      throw new Error(
-        "Database connection error. If you're on Vercel, please initialize the database first by calling /api/admin/init-db"
+      const errorMessage = dbError instanceof Error ? dbError.message : "Unknown database error";
+      logger.error("Database query error in /api/auth/login", { 
+        error: errorMessage,
+        environment: process.env.VERCEL ? "vercel" : "local",
+      });
+      
+      // Return proper error response instead of throwing
+      return NextResponse.json(
+        { 
+          error: "DatabaseError",
+          message: `Database query error: ${errorMessage}. If you're on Vercel, please initialize the database first by calling /api/admin/init-db`
+        },
+        { 
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+          }
+        }
       );
     }
 
@@ -126,7 +182,12 @@ export async function POST(request: NextRequest) {
       // Return generic error (same format as success, but without user data)
       return NextResponse.json(
         { error: "Invalid credentials", message: "Email or password is incorrect" },
-        { status: 200 } // Always 200 to prevent enumeration
+        { 
+          status: 200, // Always 200 to prevent enumeration
+          headers: {
+            "Content-Type": "application/json",
+          }
+        }
       );
     }
 
@@ -144,6 +205,10 @@ export async function POST(request: NextRequest) {
         email: user.email,
         role: user.role,
       },
+    }, {
+      headers: {
+        "Content-Type": "application/json",
+      }
     });
 
     // Устанавливаем cookie через response.cookies для правильной работы в Next.js 15
@@ -158,19 +223,26 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     // Log detailed error for debugging
+    const errorDetails = error instanceof Error ? {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    } : { error };
+    
     logger.error("Error in login endpoint", { 
-      error: error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      } : error 
+      ...errorDetails,
+      environment: process.env.VERCEL ? "vercel" : "local",
+      url: request.url,
     });
     
     // Check if it's a database connection error
     if (error instanceof Error) {
       const errorMessage = error.message.toLowerCase();
       if (errorMessage.includes("prisma") || errorMessage.includes("database") || errorMessage.includes("connection") || errorMessage.includes("initialize")) {
-        logger.error("Database connection error detected", { error: error.message });
+        logger.error("Database connection error detected in /api/auth/login", { 
+          error: error.message,
+          environment: process.env.VERCEL ? "vercel" : "local",
+        });
         return NextResponse.json(
           { 
             error: "DatabaseError", 
@@ -178,7 +250,12 @@ export async function POST(request: NextRequest) {
               ? error.message
               : "Database connection error. If you're on Vercel, the database may need to be initialized. Please call /api/admin/init-db first."
           },
-          { status: 500 }
+          { 
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+            }
+          }
         );
       }
     }
