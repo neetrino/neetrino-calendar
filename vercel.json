@@ -5,11 +5,5 @@
   "regions": ["iad1"],
   "env": {
     "SKIP_ENV_VALIDATION": "false"
-  },
-  "functions": {
-    "app/api/**/*.ts": {
-      "maxDuration": 30,
-      "runtime": "nodejs20.x"
-    }
   }
 }
