@@ -7,8 +7,9 @@
     "SKIP_ENV_VALIDATION": "false"
   },
   "functions": {
-    "src/app/api/**/*.ts": {
-      "maxDuration": 30
+    "app/api/**/*.ts": {
+      "maxDuration": 30,
+      "runtime": "nodejs20.x"
     }
   }
 }

@@ -220,6 +220,29 @@ npm run dev
 - Улучшена обработка ошибок с правильными JSON ответами
 - Это необходимо, так как Prisma не работает в Edge Runtime
 
+#### 10:00 — Добавлен runtime для всех API routes ✅
+- [x] Добавлен `runtime = "nodejs"` для всех API routes, использующих Prisma
+- [x] Обновлены: users, calendar/items, schedule, admin/permissions, calendar/items/[id], schedule/[id]
+
+**Важно:** После этого коммита нужно сделать **Redeploy** на Vercel, чтобы изменения вступили в силу!
+
+#### 10:30 — Исправлена ошибка 405 (Method Not Allowed) на Vercel ✅
+- [x] Исправлен путь в `vercel.json`: изменён с `src/app/api/**/*.ts` на `app/api/**/*.ts`
+- [x] Обновлён matcher в `middleware.ts`: добавлено исключение для `/api/` routes
+- [x] Middleware теперь явно пропускает все API запросы
+
+**Проблема:** 
+- `/api/auth/login` возвращал 405 (Method Not Allowed) на Vercel
+- Middleware matcher перехватывал API запросы
+- Неправильный путь в конфигурации Vercel
+
+**Решение:** 
+- Исправлен путь в `vercel.json` (убрана папка `src/`)
+- Добавлено исключение `api/` в matcher middleware
+- Теперь все API routes обрабатываются напрямую Next.js, минуя middleware
+
+**Важно:** После этого коммита нужно сделать **Redeploy** на Vercel, чтобы изменения вступили в силу!
+
 ---
 
-*Последнее обновление: 26.01.2026 09:45*
+*Последнее обновление: 26.01.2026 10:30*
