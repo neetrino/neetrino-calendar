@@ -6,6 +6,8 @@ import { checkDatabaseConnection, isDatabaseInitialized } from "@/lib/db";
 
 // Explicitly set runtime to nodejs (required for Prisma on Vercel)
 export const runtime = "nodejs";
+// Ensure Vercel always runs this as serverless (avoids static/edge and 500 HTML)
+export const dynamic = "force-dynamic";
 
 /**
  * GET /api/auth/me - Get current user

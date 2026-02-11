@@ -8,6 +8,8 @@ import { z } from "zod";
 
 // Explicitly set runtime to nodejs (required for Prisma on Vercel)
 export const runtime = "nodejs";
+// Ensure Vercel always runs this as serverless and accepts POST (avoids 405)
+export const dynamic = "force-dynamic";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email format"),
@@ -35,6 +37,16 @@ export async function OPTIONS(request: NextRequest) {
       "Access-Control-Max-Age": "86400", // 24 hours
     },
   });
+}
+
+/**
+ * GET /api/auth/login - Not allowed; return JSON 405 so client never gets HTML
+ */
+export async function GET() {
+  return NextResponse.json(
+    { error: "MethodNotAllowed", message: "Use POST to log in." },
+    { status: 405, headers: { "Content-Type": "application/json", Allow: "POST, OPTIONS" } }
+  );
 }
 
 /**

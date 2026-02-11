@@ -44,6 +44,8 @@ function LoginForm() {
           email: loginEmail,
           password: loginPassword,
         }),
+        cache: "no-store",
+        credentials: "same-origin",
       });
       
       console.log("[Login] Response status:", response.status, response.statusText);

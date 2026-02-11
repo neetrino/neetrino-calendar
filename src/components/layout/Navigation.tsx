@@ -33,15 +33,23 @@ export function Navigation() {
 
   useEffect(() => {
     setMounted(true);
-    // Fetch current user info
-    fetch("/api/auth/me")
-      .then((res) => res.json())
+    // Fetch current user info (handle 500 HTML from Vercel gracefully)
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then(async (res) => {
+        const text = await res.text();
+        if (!text || text.trim().startsWith("<")) {
+          // Server returned HTML (error page) — don't parse as JSON
+          return { user: null };
+        }
+        try {
+          return JSON.parse(text) as { user?: { name: string; email: string; role: string } | null };
+        } catch {
+          return { user: null };
+        }
+      })
       .then((data) => {
         if (data.user) {
-          console.log("[Navigation] User loaded:", data.user);
           setCurrentUser(data.user);
-        } else {
-          console.log("[Navigation] No user found");
         }
       })
       .catch((err) => {
