@@ -5,8 +5,7 @@ import { z } from "zod";
  * Validates all required environment variables at startup
  */
 const envSchema = z.object({
-  // Database
-  // On Vercel with SQLite, will use in-memory database if not provided
+  // Database (PostgreSQL, e.g. Neon)
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
   // Auth
@@ -53,15 +52,12 @@ function isBuildTime(): boolean {
  */
 export const env = (() => {
   try {
-    // On Vercel, provide default in-memory SQLite if DATABASE_URL is not set
-    const databaseUrl = process.env.DATABASE_URL || (process.env.VERCEL ? "file::memory:?cache=shared" : undefined);
-    
-    // During build (prisma generate), use placeholder for AUTH_SECRET if not set
     const buildTime = isBuildTime();
+    const databaseUrl = process.env.DATABASE_URL || (buildTime ? "postgresql://build-placeholder" : undefined);
     const authSecret = process.env.AUTH_SECRET || (buildTime ? "build-time-placeholder-min-32-chars-long-required" : undefined);
     
     const envData = {
-      DATABASE_URL: databaseUrl || "file:./dev.db", // Fallback for local dev
+      DATABASE_URL: databaseUrl,
       AUTH_SECRET: authSecret,
       NODE_ENV: process.env.NODE_ENV || "development",
       RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED,
@@ -83,7 +79,7 @@ export const env = (() => {
           console.warn("⚠️  AUTH_SECRET not set during build - using placeholder. Make sure to set it in Vercel environment variables!");
         }
         return envSchema.parse({
-          DATABASE_URL: process.env.DATABASE_URL || (process.env.VERCEL ? "file::memory:?cache=shared" : "file:./dev.db"),
+          DATABASE_URL: process.env.DATABASE_URL || (buildTime ? "postgresql://build-placeholder" : undefined!),
           AUTH_SECRET: "build-time-placeholder-min-32-chars-long-required",
           NODE_ENV: process.env.NODE_ENV || "development",
           RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED,

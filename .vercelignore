@@ -6,7 +6,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Database files (not needed on Vercel - using in-memory)
+# Local DB files (using Neon PostgreSQL)
 prisma/dev.db
 prisma/dev.db-journal
 *.db

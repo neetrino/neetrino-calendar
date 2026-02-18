@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 /**
  * POST /api/admin/init-db - Initialize database with seed data
  * This endpoint should be called once after deployment to Vercel
- * (since in-memory SQLite loses data on restart)
+ * (e.g. after first deploy to Neon)
  */
 export async function POST(request: NextRequest) {
   try {

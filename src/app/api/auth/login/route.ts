@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (dbError) {
-      // Check if database is empty (common on Vercel with in-memory SQLite)
+      // Check if database is empty (e.g. right after deploy)
       const errorMessage = dbError instanceof Error ? dbError.message : "Unknown database error";
       logger.error("Database query error in /api/auth/login", { 
         error: errorMessage,

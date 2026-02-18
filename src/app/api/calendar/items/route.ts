@@ -72,9 +72,9 @@ export async function GET(request: NextRequest) {
     if (type) where.type = type;
     if (status) where.status = status;
     if (search) {
-      // For SQLite, use contains (case-sensitive)
       where.title = {
         contains: search,
+        mode: "insensitive",
       };
     }
 
